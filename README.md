@@ -1,2 +1,2 @@
-# portfolio
-This is a portfolio of data journalism projects to show my skill.
+# Data journalism portfolio
+This repo is to give poteintial employers to look at my code before making a hiring decision.
