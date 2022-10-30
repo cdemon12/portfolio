@@ -1,0 +1,80 @@
+---
+title: "Assessment Data"
+output: html_notebook
+---
+
+## Aggregating and basic analysis for Columbia Missourian story graphic
+
+Source data: https://dese.mo.gov/media/pdf/august-2022-report-2021-22-map-grade-level-and-end-course-preliminary-statewide-results
+
+The data is in a PDF, so I mannually copied data over
+
+```{r}
+library(tidyverse)
+```
+
+#### Create tibble
+```{r}
+testing <- tibble (
+  subject = c("ELA", "ELA", "ELA", "ELA",
+              "ELA", "ELA", "ELA", "ELA",
+              "Math", "Math", "Math", "Math",
+              "Math", "Math", "Math", "Math", 
+              "Math", "Science", "Science", "Science",
+              "Science", "Social Studies", "Social Studies"),
+  grade = c("3rd", "4th", "5th", "6th",
+            "7th", "8th", "English I", "English II",
+            "3rd", "4th", "5th", "6th",
+            "7th", "8th", "Algebra I", "Geometry",
+            "Algebra II", "5th", "8th", "Biology", 
+            "Physical Science", "American Government", "American History"),
+  "2018" = c(49, 50, 48, 48,
+             44, 49, 62, 57,
+             47, 46, 41, 41,
+             38, 30, 47, 47,
+             48, NA, NA, NA,
+             NA, 66, 49), 
+  "2019" = c(49, 49, 47, 46,
+             44, 47, 60, 59,
+             46, 47, 40, 43,
+             38, 29, 45, 46,
+             50, 43, 44, 39, 
+             37, NA, NA),
+  "2020" = c(NA, NA, NA, NA,
+             NA, NA, NA, NA,
+             NA, NA, NA, NA,
+             NA, NA, NA, NA,
+             NA, NA, NA, NA,
+             NA, NA, NA),
+  "2021" = c(42, 49, 42, 43,
+             41, 46, 62, 55,
+             37, 40, 33, 38,
+             34, 27,36, 43,
+             44, 40, 37, 34,
+             37, 42, 34),
+  "2022_prelim" = c(41, 44, 44, 39,
+                    38, 43, 62, 54,
+                    40, 44, 36, 42,
+                    38, 32, 41, 49,
+                    49, 41, 38, 35,
+                    39, 40, 32)
+)
+```
+
+#### Add percent change columns
+```{r}
+testing <- 
+  testing %>% 
+  mutate(
+    percent_2018 = `2022_prelim`-`2018`, 
+    percent_2021 = `2022_prelim`-`2021`)
+
+```
+
+#### Export to csv to use in datamapper
+
+```{r}
+testing %>% write_csv(file = "data/testing.csv")
+```
+
+Final graphic here: https://www.datawrapper.de/_/SoyL2/

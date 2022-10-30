@@ -1,0 +1,421 @@
+---
+title: "Columbia, MO - payroll payments"
+output: 
+html_notebook: default
+---
+
+### About the data
+
+Here's the [main page for Columbia finance](https://como.finance.socrata.com/#!/dashboard). Here's the [detail page for this payroll data](https://como.payroll.socrata.com/#!/year/All%20Years/full_time_employees,others/pay1,pay2,pay3,pay4/explore/1-0-0/segment2?x-return-url=https:%2F%2Fcomo.finance.socrata.com%2F%23!%2Fdashboard&x-return-description=Return%20to%20Open%20Finance)
+
+### Libraries
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(plotly)
+library(lubridate)
+library(quantmod)
+```
+
+### Import the data
+
+Note that you don't need to download the file to your computer. The `read_csv()` function can grab the csv directly from the webpage. In this case, I've put a csv of three years' worth of payroll data on github for you to access directly from there:
+
+```{r}
+payroll <- read_csv("https://github.com/eklucas/ADJF2022/blob/main/data/payroll-2020-2022.csv?raw=true")
+```
+
+### First glance at data
+
+```{r}
+str(payroll)
+payroll
+```
+
+1,119,650 rows × 12 columns All data seems to be in the correct data type
+
+### Clean header row
+
+```{r}
+payroll <- clean_names(payroll)
+```
+
+## Integrity Checks
+
+### Character data
+
+```{r}
+# names
+payroll %>% count(last_name, first_name) %>% arrange(desc(n))
+payroll %>% filter(is.na(last_name) | is.na(first_name)) # empty tibble
+
+# department
+payroll %>% count(department) %>% arrange(desc(n))
+
+#job title
+payroll %>% count(job_title) %>% arrange(desc(n))
+
+#subcategory
+payroll %>% count(subcategory) %>% arrange(desc(n))
+```
+
+-   3,741 unique employees and no NAs in the names columns
+-   271 unique departments with "PD police chief" being the most common departments look more like job positions rather department
+-   430 unique job titles with the "POLICE OFFICER - CPOA" being the most common
+-   53 unique subcategories with "social security" being the most common
+
+### Numerical data
+
+```{r}
+summary(payroll)
+
+count_checks <- function(column) {
+  all <- payroll %>% nrow()
+  zero <- payroll %>% filter(column == 0) %>% nrow()
+  nas <- payroll %>% filter(is.na(column)) %>% nrow()
+  negative <- payroll %>% filter(column < 0) %>% nrow() 
+  tibble(total = all, zero = zero, percent_zero = zero/all*100, nas = nas, percent_nas = nas/all*100, negative = negative, percent_negative = negative/all*100)
+}
+
+#total_pay
+count_checks(payroll$total_pay)
+payroll %>% filter(total_pay < 0) %>% count(subcategory) %>% arrange(desc(n))
+
+hist(payroll$total_pay) # there are outliers
+boxplot(payroll$total_pay)
+payroll %>% arrange(desc(total_pay)) # all outliers seem to be to retirees
+hist(payroll$total_pay, xlim=c(-10,300), breaks = 50000) # zoomed in histogram to see without outliers
+
+#base_pay
+count_checks(payroll$base_pay)
+
+#overtime_pay
+count_checks(payroll$overtime_pay)
+
+#other_pay
+count_checks(payroll$other_pay)
+
+#employer_paid_benefits
+count_checks(payroll$employer_paid_benefits)
+
+#check_number
+count_checks(payroll$check_number)
+
+#check_date
+count_checks(payroll$check_date)
+```
+
+-   **Total pay**
+    -   Range: -\$4,389.60, \$427,611.40
+    -   Median: \$62.50
+    -   Mean: \$355.20
+    -   Interquartile range: \$7.60, \$270.10
+    -   Zeroes: 2,542 (\<1%)
+        -   Notes: It doesn't make sense to see zero in total pay. Maybe two payments the cancel each other out but why?
+    -   NAs: 0
+    -   Negatives: 18,567 (1.7%)
+        -   Notes: Most of the negative payments are categorizes as "Miscellaneous"
+    -   Histogram and boxplot show very high positive outliers, which is also supported by the difference between the median and mean
+-   **Base pay**
+    -   Range: -\$4,389.10, \$7,923.20
+    -   Median: \$0
+    -   Mean: \$171.50
+    -   Interquartile range: \$0, \$0
+    -   Zeroes: 956,942 (85.47%)
+    -   NAs: 0
+    -   Negatives: 71 (\<0.01%)
+-   **Overtime pay**
+    -   Range: -\$5,837.79, \$2,681.01
+    -   Median: \$0
+    -   Mean: \$1.00
+    -   Interquartile range: \$0, \$0
+    -   Zeroes: 1,110,859 (99%)
+    -   NAs: 0
+    -   Negatives: 1,922 (\<1%)
+-   **Other pay**
+    -   Range: -\$2,984.20, \$427,611.50
+    -   Median: \$0
+    -   Mean: \$83.3
+    -   Interquartile range: \$0, \$0
+    -   Zeroes: 863,444 (77%)
+    -   NAs: 0
+    -   Negatives: 335 (\<0.1%)
+-   **Employee paid benefits**
+    -   Range: -\$4,939.60, \$19,377.40
+    -   Median: \$6.79
+    -   Mean: \$99.41
+    -   Zeroes: 332,714 (30%)
+    -   NAs: 0
+    -   Negatives: 18,264 (1.6%)
+-   **Check numbers**
+    -   Zeroes: 624 (\<0.1%)
+        -   Notes: Why are check numbers zero? Was another payment method used?
+    -   NAs, Negatives: 0
+-   **Check date**
+    -   Range: 2019-10-11, 2022-09-23
+    -   Zeroes, NAs, Negatives: 0
+    -   Period length: 2 years, 11 months, 18 days
+
+Note: A lot of negative values that don't make sense. Probably reconciliations or refunds of some kind.
+
+## Analysis
+
+1.  Who did the city pay the most money to?
+    1.  On 2022-05-12, the city paid Darrin Arends, a fire retiree, almost a half a million dollars in the department "PF pension fire" and subcategory "drop liab fire." A quick Google shows that Arends was the fire chief for 17 years and with the department for 28 years. He retired earlier this year.
+
+    2.  You always hear about pensions being a large part of the public budget. Pensions are 11.28% of the budget at \$44,874,349.08 or almost 45 million dollars
+
+    3.  What person, department, job title and subcategory had largest total payments?
+
+    4.  Because the fire chief got paid so much, I'm curious how much firefighters are getting paid.
+
+        1.  The median firefighter pay is \$100,988.
+
+```{r}
+# sort by highet payment
+payroll %>%
+  arrange(desc(total_pay))
+
+# calculate total spent on pensions
+sum <- payroll %>% 
+  summarise(sum = sum(total_pay)) %>% 
+  as.numeric()
+
+sum_pension <- payroll %>% 
+  filter(grepl("pension", department, ignore.case = T)) %>% 
+  summarise(sum = sum(total_pay)) %>% as.numeric()
+
+sum_pension/sum *100 #11.28%
+
+# group by cats and sort
+# person
+payroll %>% 
+  group_by(last_name, first_name) %>% 
+  summarise(sum = sum(total_pay)) %>% 
+  arrange(desc(sum)) # Darrin Arends @ $1,221,487.40
+# department
+payroll %>% 
+  group_by(department) %>% 
+  summarise(sum = sum(total_pay)) %>% 
+  arrange(desc(sum)) # PD Police Chief @ $51,688,974.27
+# job title
+payroll %>% 
+  group_by(job_title) %>% 
+  summarise(sum = sum(total_pay)) %>% 
+  arrange(desc(sum)) # Police Officer - CPOA @ $30,961,115.50
+# subcategory
+payroll %>% 
+  group_by(subcategory) %>% 
+  summarise(sum = sum(total_pay)) %>% 
+  arrange(desc(sum)) #  Permanent positions @ $220,622,266.05	
+
+# find firefighter salary 
+# filter to firefigters, group by names, calculate mean of all payments to distinct people
+firefighters <- payroll %>% filter(grepl("firefighter", job_title, ignore.case = T)) %>% group_by(last_name, first_name) %>% summarise(sum = sum(total_pay))
+summary(firefighters) # mean: $144,839, median: $100,988
+
+```
+
+2.  What does payroll look over time? Is there any sudden increases in payment at certain times?
+    1.  There is a big spike on 2022-07-15. Nothing interesting that I can find other than it was probably payday.
+
+    2.  I might have to create time period bins to have more readable time series data that actually represents changes in payroll.
+
+    3.  There are big spikes every 5-7 months, mostly in December or July, the beginning of the fiscal year and the end of the calendar year. Could be bonuses or something to do with Holidays, Christmas and Fourth of July, respectively.
+
+    4.  I'm going to strip the data to find out where the spikes are coming from
+
+    5.  There are quite a few subcategories that have spikes biannually: temporary positions, social security, permanent positions, LAGERS, disability insurance, deferred comp match, clothing prot equip allow (spikes quarterly).
+
+    6.  I have a feeling it is just fiscal year that is causing these spikes. Though, it is interesting to note that both temporary positions and permanent positions payments increased, which could be a hustle to get stuff done before the end of a fiscal period or it could have to with the holidays. Kind of a mundane result for such a long rabbit hole.
+
+    7.  Data inconsistencies: There are two categories for HSA contributions.
+
+```{r}
+# create time series chart
+payroll_time <- payroll %>% group_by(check_date) %>% summarise(sum= sum(total_pay)) %>% arrange(check_date)
+
+p <- payroll_time %>%
+  ggplot( aes(x=check_date, y=sum)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    ylab("Total payments")
+
+ggplotly(p)
+
+#find all payments on 2022-07-15
+payroll %>% filter(check_date == as.Date('2022-07-15')) %>% arrange(desc(total_pay))
+
+#group by month, instead of day
+payroll_month <- payroll %>% group_by(month = lubridate::floor_date(check_date, 'month')) %>% summarise(sum= sum(total_pay)) %>% arrange(month) 
+
+p <- payroll_month %>%
+  ggplot( aes(x=month, y=sum)) +
+    geom_area(fill="#69b3a2", alpha=0.5) +
+    geom_line(color="#69b3a2") +
+    ylab("Total payments")
+
+ggplotly(p)
+
+#subcategories vs time
+payroll %>% 
+  group_by(month = lubridate::floor_date(check_date, 'month'), subcategory) %>%
+  summarise(sum =  sum(total_pay)) %>% 
+  pivot_wider(
+    id_cols = month,
+    names_from = subcategory,
+    values_from = sum)
+
+```
+
+3.  How sticky are the wages at the city? In other words, how quickly does wages reflect changes in inflation?
+    1.  The two wages subcategories are permanent positions and temporary positions. When we create a inflation adjusted wage per person, we should expect to see a flat line or no change in wages, if wages are perfectly unsticky. So, any deviation from a straight line shows stickiness.
+
+        1.  filter on just wage positions
+
+        2.  find average wage per month
+
+        3.  adjust wages for inflation
+
+        4.  graph
+
+    2.  One problem I ran into is that I can't be sure there is not multiple payment per pay period per person. I not sure how to count unique names and divide the sum of payment by that count. I just going to assume it is good enough if I ignore the problem.
+
+    3.  Using the first month as a base year, I calculated the inflation-adjusted wage. Except for the weird spike in July, you can see a slight negative trend, which reflects sticky wages and the employees' income losing buying power.
+
+```{r}
+# permanent
+
+# filter by permanent positions and group by month
+permanent <- payroll %>% 
+  filter(subcategory == "PERMANENT POSITIONS") %>%
+  group_by(month = lubridate::floor_date(check_date, 'month')) %>% 
+  summarise(mean_wage = mean(total_pay))
+
+# graph of nominal wages
+permanent %>% ggplot( aes(x=month, y=mean_wage)) +
+              geom_area(fill="#69b3a2", alpha=0.5) +
+              geom_line(color="#69b3a2") +
+              ylab("Wage/worker")
+
+# request CPI data from FRED
+getSymbols("CPIAUCSL", src='FRED')
+
+# use first data point as base month
+base_month <- CPIAUCSL[as.Date("2019-10-01")] %>% as.numeric()
+
+# save as dataframe
+basket <- as.data.frame(CPIAUCSL)
+
+# make date readable as date
+basket <- basket %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(month=as.Date(month)) %>% 
+  rename("cpi"=CPIAUCSL)
+  
+# join CPI with wage data and real wages
+permanent <- permanent %>% 
+  left_join(basket, by=c("month" = "month")) %>% mutate(rate = cpi/base_month) %>% mutate(real_wage = mean_wage / rate) %>% filter(!is.na(real_wage))
+
+# plot with trend line
+p <- permanent %>% ggplot( aes(x=month, y=real_wage)) +
+              geom_point(fill="#69b3a2", alpha=0.5) +
+              geom_smooth(color="#69b3a2", method="lm") +
+              ylab("Real wages")
+ggplotly(p)
+```
+
+```{r}
+# temp
+
+# filter by temp positions and group by month
+temp <- payroll %>% 
+  filter(subcategory == "TEMPORARY POSITIONS") %>%
+  group_by(month = lubridate::floor_date(check_date, 'month')) %>% 
+  summarise(mean_wage = mean(total_pay))
+
+# graph of nominal wages
+temp %>% ggplot( aes(x=month, y=mean_wage)) +
+              geom_area(fill="#69b3a2", alpha=0.5) +
+              geom_line(color="#69b3a2") +
+              ylab("Wage/worker")
+
+# request CPI data from FRED
+getSymbols("CPIAUCSL", src='FRED')
+
+# use first data point as base month
+base_month <- CPIAUCSL[as.Date("2019-10-01")] %>% as.numeric()
+
+# save as dataframe
+basket <- as.data.frame(CPIAUCSL)
+
+# make date readable as date
+basket <- basket %>% 
+  rownames_to_column(var = "month") %>% 
+  mutate(month=as.Date(month)) %>% 
+  rename("cpi"=CPIAUCSL)
+  
+# join CPI with wage data and real wages
+temp <- temp %>% 
+  left_join(basket, by=c("month" = "month")) %>% mutate(rate = cpi/base_month) %>% mutate(real_wage = mean_wage / rate) %>% filter(!is.na(real_wage))
+
+# plot with trend line
+p <- temp %>% ggplot( aes(x=month, y=real_wage)) +
+              geom_point(fill="#69b3a2", alpha=0.5) +
+              geom_smooth(color="#69b3a2", method="lm") +
+              ylab("Real wages")
+ggplotly(p)
+```
+
+4.  How does overtime trend over time? How big is the cities staffing issues?
+    1.  There are upward trends for both the total overtime payments and the number of overtime payments. These is indicative of the strong job market.
+
+```{r}
+# plot quantity of overtime payments with trend line
+payroll %>% 
+  filter(subcategory == "OVERTIME") %>%
+  count(check_date) %>% 
+  ggplot(aes(x=check_date, y=n)) +
+  geom_point(color="#69b3a2") +
+  geom_smooth(method=lm)
+
+# plot total overtime payment with trend line
+payroll %>% 
+  filter(subcategory == "OVERTIME") %>% 
+  group_by(check_date) %>% 
+  summarise(sum = sum(total_pay)) %>% 
+  ggplot(aes(x=check_date, y=sum)) +
+  geom_point(color="#69b3a2") +
+  geom_smooth(method=lm)
+```
+
+5.  City council members only started getting paid in 2020, so are there any other payments to elected officials?
+    1.  Elected council members are received 433 payments for social security and temporary positions. It makes sense these are the same because every time you get income you have to pay into social security. Then there are 2 payments for travel training.
+
+    2.  The travel training is are both of the same day (2019-12-20) for \$412.30 to Karl Skala and \$1,003.14 to Micheal Trapp. I assume that they went to some kind of training together. If so, why did Trapp spend twice as much? Did he buy a more expensive hotel room or meal on the city's dollar? Was it an abuse of the travel reimbursement? It was probably not but worth exploring.
+
+    3.  Nothing seems out of order with the income payments. Two of the members got paid slightly more than expected for the pay period but that is probably just an artifact of the payment periods
+
+```{r}
+# count subcategories for council members
+payroll %>% filter(job_title == "ELECTED COUNCIL MEMBER") %>% count(subcategory)
+
+# travel expenses
+payroll %>% filter(job_title == "ELECTED COUNCIL MEMBER", subcategory == "TRAVEL TRAINING") 
+
+# temporary positions
+payroll %>% filter(job_title == "ELECTED COUNCIL MEMBER", subcategory == "TEMPORARY POSITIONS") %>% group_by(last_name, first_name) %>% summarise(sum = sum(total_pay))
+```
+
+## Conclusion
+
+I don't feel I found that much that is particularly interesting. I couldn't find any documentation for this data set. So, I was in the dark about some context and had to make some educated guesses. If this was for a story that was being published, I would have contacted the custodian of the data for documentation. Also, a couple of findings are dependent on assumptions that would require further reporting if put in a story. Some of math analysis is not bulletproof -- trend lines only say so much.
+
+### Findings
+
+Since October 2019, the city of Columbia have made increasing amount of overtime payments. The city requiring more overtime hours from its employees shows the effects of the tight job market on the central Missouri city's government.
+
+The real wages of the city of Columbia's temporary workers have decreased over the past three years by about \$40 per month, while the real wages of the city's permanent workers are largely unchanged.
+
+City council member Micheal Trapp spent twice as much city funds on traveling expenses for training compared to his colleague Karl Skala.

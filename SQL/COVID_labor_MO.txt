@@ -1,0 +1,184 @@
+﻿This was part of a project in my computer-assisted journalism class.
+
+This is a part of an analysis of the trends of the labor market in Missouri during the COVID-19 pandemic.
+
+
+1. Did fewer people participate in the labor force when COVID-19 cases increased?
+
+
+* Joins and creates new columns for month and year for Missouri COVID-19 cases from the Missouri Department of Health and the labor participation rate for Missouri from the St. Louis Federal Reserve and summed all new cases by day by adding all the daily cases for a given month and year and limited the labor participation rate to between the beginning of the pandemic, March 2020, to the most recent data, Jan. 2022.
+
+
+SELECT substring(covid.date,1,2) AS Month, substring(covid.date,7,4) AS Year, sum(NewCases) as NewCases, LBSSA29 AS Rate
+FROM lfpr, covid
+WHERE substring(lfpr.DATE,1,4) = substring(covid.date,7,4)AND substring(lfpr.DATE,6,2) = substring(covid.date,1,2)AND lfpr.DATE BETWEEN "2020-03-01" AND "2022-01-01"
+GROUP BY substring(covid.date,1,2), substring(covid.date,7,4)
+ORDER BY substring(covid.date,7,4), substring(covid.date,1,2)
+
+
+* Saved as a csv and imported into a Stata data file, a statistics and data science program commonly used by economists.
+
+
+Stata Do-file/input
+* Generate date based in one unit
+gen date = month+12*(year-2020)
+
+
+* Generate lag of new cases to test for delayed indicator, -1 month, -2 months, +1 month
+gen lag1 = newcases[date-1]
+gen lag0 = newcases[date+1]
+gen lag2 = newcases[date-2]
+
+
+* Generate log values of variables
+gen ln_rate = log(rate)
+gen ln_newcases = log(newcases)
+
+
+* Regression analysis
+reg rate newcases
+reg rate lag1
+reg rate lag0
+reg rate lag2
+reg ln_rate ln_newcases
+reg ln_rate newcases
+reg rate ln_newcases
+
+
+* Correlation analysis
+corr rate newcases lag0 lag1 lag2
+
+
+Hypothesis testing
+Use significance level of 95%, alpha = 5% (5% chance of Type I error)
+H0: newcases coefficient = 0 (zero slope, no relationship) H1: newcases coefficient < 0 (inverse relationship)
+Two-tailed p-value at 0 from output = 0.42
+Right tailed p-value at 0 = 0.42/2 = 0.21
+Left tailed p-value at 0 = 1-0.21 = 0.79
+P-value approach: p-value = 0.79 > alpha = 0.05 → Do not reject null hypothesis → not significant / no relationship
+* Based on the hypothesis test outcome, fewer people did not participate in the labor force due to an increase in COVID-19 cases. The p-value was much greater than alpha meaning there is a small chance of a Type II error. I also tested various lags in response to new cases to see if new cases were a delayed indicator of labor force participation. I didn’t list the hypothesis testing for the lag regressions but all the p-values were quite high implying no relationship as well. I also did log-log, log-linear and linear log regressions with similar results. The log-log model had the highest level of significance but the p-value was still well above 5%. I also ran a correlation analysis to whether they, maybe, shared an unknown explanatory variable. The labor participation rate was weakly positively correlated with new cases. This is the opposite correlation that was addressed in the questions. So, there is no negative correlation. Based on this analysis, the answer to the question is no.
+* 23 records
+
+
+2. What months have COVID-19 cases peaked in Missouri?
+
+
+* Parses the SQL unfriendly dates into month and year columns, sums daily new cases by month to get the total new cases in each month and orders by the sum.
+
+
+SELECT substring(date,1,2) AS Month, substring(date,7,4) AS Year, sum(NewCases) as NewCases, sum(TotalTested) as Tested
+FROM covid
+GROUP BY substring(date,1,2), substring(date,7,4)
+ORDER BY sum(NewCases) DESC
+
+
+* The months with the highest number of new cases were January 2022, December 2021, November 2020, December 2020 and August 2021. 
+* 25 records
+
+
+3. What months have COVID-19 tests peaked in Missouri?
+
+
+* Parses the SQL unfriendly dates into the month and year columns sum daily new cases by month to get the total new cases for each month and orders by the sum
+
+
+SELECT substring(date,1,2) AS Month, substring(date,7,4) AS Year, sum(NewCases) as NewCases, sum(TotalTested) as Tested
+FROM covid
+GROUP BY substring(date,1,2), substring(date,7,4)
+ORDER BY sum(TotalTested) DESC
+
+
+* The months with the highest number of tests were December 2020, January 2022, November 2020, January 2021 and October 2020.
+* 25 records
+
+
+4. Did unemployment correlate closer with cases, tests or deaths?
+
+
+* Parses the SQL unfriendly dates into month and year columns, sums daily new cases, new deaths, and total tested by a month to get totals for each month. Joins Local Area Unemployment Statistics from the Bureau of Labor Statistics with COVID-19 statistics for the Missouri Department of Health by month and year
+
+
+SELECT substring(covid.date,1,2) AS Month, substring(covid.date,7,4) AS Year, sum(NewCases) as NewCases, sum(TotalTested) as TotalTested, sum(NewDeaths) as NewDeaths, UnemploymentRate, LaborForce
+FROM covid, unemp_mo
+WHERE substring(covid.date,7,4) = unemp_mo.Year AND substring(covid.date,1,2) = unemp_mo.Period
+GROUP BY substring(date,1,2), substring(date,7,4)
+ORDER BY substring(date,7,4), substring(date,1,2)
+
+
+* Saved as a csv and imported into a Stata data file
+
+
+Stata do-file/input
+*correlation between unemployment rate, new cases, tested, deaths
+corr unemploymentrate newcases totaltested newdeath
+*regression of unemployment rate on total tested
+reg unemploymentrate totaltested
+
+
+Hypothesis testing
+Use significance level of 95%, alpha = 5% (5% chance of Type I error)
+H0: totatested coefficient = 0 (zero slope, no relationship) H1: totaltested coefficient < 0 (inverse relationship)
+Two-tailed p-value at 0 from output = 0.082
+Left tailed p-value at 0 = 0.082/2 = 0.041
+P-value approach: p-value = 0.041 alpha = 0.05 → Reject null hypothesis, accept null hypothesis→ Significant / negative relationship
+
+
+* All of the correlation coefficients were between -.33 and -.39. These are at the top of the weakly, negatively correlated range and close to the moderately, negatively correlated range. The most correlated variable with the unemployment rate was total tested at -.39. I ran a regression of total tested on unemployment to see if it was a good explanatory variable. Total tested is statistically significant as an inverse indicator of unemployment. Total tested explains 15% of the changes in the unemployment rate in Missouri during the pandemic. The answer to the question is total tested is most correlated.
+* 21 records
+
+
+5. Did Missouri employment react slower or less dramatically to the increase in cases compared to the U.S.? 
+
+
+* Parses the SQL unfriendly dates into month and year columns, sums daily new cases, new deaths, and total tested by month to get totals for each month. Joins Local Area Unemployment Statistics from the Bureau of Labor Statistics for Missouri and the U.S. with COVID-19 statistics for the Missouri Department of Health by month and year.
+
+
+SELECT substring(covid.date,1,2) AS Month, substring(covid.date,7,4) AS Year, sum(NewCases) as NewCases, sum(TotalTested) as TotalTested, sum(NewDeaths) as NewDeaths, unemp_mo.UnemploymentRate as RateMO,  unemp_us.UnemploymentRate AS RateUS
+FROM covid, unemp_mo, unemp_us
+WHERE substring(covid.date,7,4) = unemp_mo.Year AND substring(covid.date,1,2) = unemp_mo.Period and unemp_mo.Year = unemp_us.Year AND unemp_mo.Period = unemp_us.Period
+GROUP BY substring(date,1,2), substring(date,7,4)
+ORDER BY substring(date,7,4), substring(date,1,2)
+
+
+-- Saved as a csv and imported into Stata
+
+
+Stata do-file/input
+*creates table with max, min, range, variance, standard deviation and mean for both rates
+tabstat ratemo rateus, stat(max, min, range, sd, variance, mean)
+*finds difference of standard deviation
+sum ratemo rateus
+collapse (sd) ratemo_sd = ratemo rateus_sd = rateus
+di rateus_sd - ratemo_sd
+
+
+* Over the period of the pandemic, the nation had a higher variance and larger range of unemployment rate compared to Missouri. Missouri’s unemployment rate was less volatile. On average, Missouri’s unemployment rate was .65% closer to the mean than the nation.
+* 21 records
+
+
+6. What occupations saw the most effects of the increase in cases by wages and employment?
+
+
+* Joins Occupational Employment and Wage Statistics 2019 and 2020 from the Bureau of Labor Statistics. Finds the percent change of wage and employment for each occupation.
+
+
+SELECT wages_19.SocTitle, wages_19.Employment, wages_20.Employment, (wages_20.Employment-wages_19.Employment) as Difference, (((1.*wages_20.Employment-wages_19.Employment)/(wages_19.Employment/100))) AS PercentChange, wages_19.AnnualWageMean, wages_20.AnnualWageMean, (wages_20.AnnualWageMean-wages_19.AnnualWageMean) as Difference, (((1.*wages_20.AnnualWageMean-wages_19.AnnualWageMean)/(wages_19.AnnualWageMean/100))) AS PercentChange
+FROM wages_19, wages_20 
+WHERE wages_19.SocCode = wages_20.SocCode
+ORDER BY 5 DESC
+
+
+* Comparing the changes in wages of all occupations from the pre-pandemic to the first year of the pandemic gives us a list of the most affected wages. The most positively affected occupations were: 
+   * electrical and electronic installers & repairers
+   * barbers 
+   * foresters
+   * photographic process workers and processing machine operators
+   * fabric and apparel patternmakers 
+The most negatively affected occupations were: 
+   * media and communication workers
+   * forest and conservation workers
+   * opticians, dispensing
+   * textile, apparel, furnishing workers
+   * sociology teachers, postsecondary
+A couple of notable observations from these top five lists are as follows. Electrical and electronics installers seeing an increase in wages could be an indicator of the rise of smart homes and further integration of specialist technology into our lives. Barbers are surprising to see an increase in wages. It makes more sense to see a decrease in wages because fewer people were getting haircuts with shutdowns, but many barbers probably claim unemployment and the barbers who were higher paid wages, to begin with, were more likely not to claim unemployment. Foresters and forest and conservation workers saw opposite effects for seemingly similar jobs, perhaps a change in identification. Fabric and apparel patternmakers seeing an increase in wages might be because of mask making. Sociology teachers, postsecondary, seeing a decrease in wages is also interesting, perhaps an indication of drops in all postsecondary teachers' wages due to competing with the influx of adjunct instructors, pressures of virtual teaching, or maybe a decrease of interest in sociology classes.
+* 724 records

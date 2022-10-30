@@ -1,0 +1,1 @@
+This is a project with the objective to scrape documents from an online document data (using Selenium), index the files to be searchable (using OCR, SQL and Whoosh), and create GUI for easy search (using Flask).. 

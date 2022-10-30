@@ -1,0 +1,39 @@
+---
+title: "Teacher Experience
+output: html_notebook
+---
+```{r}
+library(tidyverse)
+library(janitor)
+library(cleaner)
+```
+
+# Data clean and filter for Columbia Missourian
+
+Data source: Missouri Department of Elementary and Secondary Education
+
+#### Clean data
+
+```{r}
+all <- read_csv("data/teacher_xp.csv")
+
+# Filter out any NA rows, clean names, clean the number to correct format
+all <- all %>% filter(!is.na(Year)) %>% clean_names() %>% clean() %>% mutate(average_teacher_salaries_total=average_teacher_salaries_total*1000)
+
+# Intergrity check
+all %>% count(school) # 5 per school
+```
+
+#### Filter for year and experience
+
+```{r}
+exp <- all %>% filter(year == 2021) %>% select(school, years_of_experience_of_professional_staff)
+```
+
+#### Export to csv to upload to datawrapper
+
+```{r}
+exp %>% write.csv("data/teacher_experience.csv")
+```
+
+#### Joined with attendence areas to make heat map: https://www.datawrapper.de/_/QG2eF/
